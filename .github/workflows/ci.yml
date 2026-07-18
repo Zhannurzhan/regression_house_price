@@ -36,9 +36,18 @@ jobs:
       - name: Smoke test API container
         run: |
           docker run -d --name housing-api-ci -p 8000:8000 -e DISABLE_S3_DOWNLOAD=1 housing-api-ci
-          sleep 10
-          curl --fail http://localhost:8000/health
+          for i in {1..30}; do
+            if curl --fail --silent http://localhost:8000/health; then
+              docker rm -f housing-api-ci
+              exit 0
+            fi
+            docker ps -a
+            docker logs housing-api-ci || true
+            sleep 2
+          done
+          docker logs housing-api-ci || true
           docker rm -f housing-api-ci
+          exit 1
 
       - name: Build Streamlit Docker image
         run: docker build -t housing-streamlit-ci -f Dockerfile.streamlit .
@@ -46,6 +55,15 @@ jobs:
       - name: Smoke test Streamlit container
         run: |
           docker run -d --name housing-streamlit-ci -p 8501:8501 -e API_URL=http://localhost:8000/predict housing-streamlit-ci
-          sleep 15
-          curl --fail http://localhost:8501/dashboard/_stcore/health
+          for i in {1..45}; do
+            if curl --fail --silent http://localhost:8501/dashboard/_stcore/health; then
+              docker rm -f housing-streamlit-ci
+              exit 0
+            fi
+            docker ps -a
+            docker logs housing-streamlit-ci || true
+            sleep 2
+          done
+          docker logs housing-streamlit-ci || true
           docker rm -f housing-streamlit-ci
+          exit 1
