@@ -1,4 +1,4 @@
-name: Build and Push to ECR
+name: Build, Push, and Deploy to ECS
 
 on:
   workflow_dispatch:
@@ -18,9 +18,12 @@ env:
   AWS_ACCOUNT_ID: "229475224700"
   API_REPOSITORY: housing-api
   STREAMLIT_REPOSITORY: housing-streamlit
+  ECS_CLUSTER: housing-regression-cluster
+  API_SERVICE: housing-api-service
+  STREAMLIT_SERVICE: housing-streamlit-service
 
 jobs:
-  push-images:
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
@@ -70,3 +73,23 @@ jobs:
           docker tag ${ECR_REGISTRY}/${STREAMLIT_REPOSITORY}:${IMAGE_TAG} ${ECR_REGISTRY}/${STREAMLIT_REPOSITORY}:latest
           docker push ${ECR_REGISTRY}/${STREAMLIT_REPOSITORY}:${IMAGE_TAG}
           docker push ${ECR_REGISTRY}/${STREAMLIT_REPOSITORY}:latest
+
+      - name: Deploy API service
+        run: |
+          aws ecs update-service \
+            --cluster ${ECS_CLUSTER} \
+            --service ${API_SERVICE} \
+            --force-new-deployment
+          aws ecs wait services-stable \
+            --cluster ${ECS_CLUSTER} \
+            --services ${API_SERVICE}
+
+      - name: Deploy Streamlit service
+        run: |
+          aws ecs update-service \
+            --cluster ${ECS_CLUSTER} \
+            --service ${STREAMLIT_SERVICE} \
+            --force-new-deployment
+          aws ecs wait services-stable \
+            --cluster ${ECS_CLUSTER} \
+            --services ${STREAMLIT_SERVICE}
