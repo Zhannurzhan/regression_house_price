@@ -15,16 +15,21 @@ from src.inference_pipeline.inference import predict
 # ----------------------------
 S3_BUCKET = os.getenv("S3_BUCKET", "housing-regression-zhannur")
 REGION = os.getenv("AWS_REGION", "eu-west-2")
-s3 = boto3.client("s3", region_name=REGION)
+DISABLE_S3_DOWNLOAD = os.getenv("DISABLE_S3_DOWNLOAD", "0").lower() in {"1", "true", "yes"}
+s3 = None if DISABLE_S3_DOWNLOAD else boto3.client("s3", region_name=REGION)
 
 # Ensures your app always has the latest model/data locally, 
 # but avoids re-downloading every time it starts.
 def load_from_s3(key, local_path):
     """Download from S3 if not already cached locally."""
     local_path = Path(local_path)
+    if DISABLE_S3_DOWNLOAD:
+        return str(local_path)
     if not local_path.exists():
         os.makedirs(local_path.parent, exist_ok=True)
         print(f"📥 Downloading {key} from S3…")
+        if s3 is None:
+            raise RuntimeError("S3 client is not initialized")
         s3.download_file(S3_BUCKET, key, str(local_path))
     return str(local_path)
 

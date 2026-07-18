@@ -1,64 +1,51 @@
-name: CI/CD Pipeline
+name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
+  pull_request:
+    branches: [main]
 
 jobs:
-  build-and-deploy:
+  test-and-build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          enable-cache: true
 
-      - name: Login to Amazon ECR
-        uses: aws-actions/amazon-ecr-login@v2
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
-      # Build and push housing-api image
-      - name: Build, Tag, and Push housing-api
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Run tests
+        run: uv run pytest -q
+
+      - name: Build API Docker image
+        run: docker build -t housing-api-ci -f Dockerfile .
+
+      - name: Smoke test API container
         run: |
-          IMAGE_TAG=${GITHUB_SHA}
-          ECR_REGISTRY=261899902410.dkr.ecr.eu-west-2.amazonaws.com
-          ECR_REPOSITORY=housing-api
+          docker run -d --name housing-api-ci -p 8000:8000 -e DISABLE_S3_DOWNLOAD=1 housing-api-ci
+          sleep 10
+          curl --fail http://localhost:8000/health
+          docker rm -f housing-api-ci
 
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -f Dockerfile .
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+      - name: Build Streamlit Docker image
+        run: docker build -t housing-streamlit-ci -f Dockerfile.streamlit .
 
-          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
-
-      # Build and push housing-streamlit image
-      - name: Build, Tag, and Push housing-streamlit
+      - name: Smoke test Streamlit container
         run: |
-          IMAGE_TAG=${GITHUB_SHA}
-          ECR_REGISTRY=261899902410.dkr.ecr.eu-west-2.amazonaws.com
-          ECR_REPOSITORY=housing-streamlit
-
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -f Dockerfile.streamlit .
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-
-          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
-
-      # Deploy to ECS - API
-      - name: Deploy housing-api-service
-        run: |
-          aws ecs update-service \
-            --cluster housing-api-cluster-ecs \
-            --service housing-api-service \
-            --force-new-deployment
-
-      # Deploy to ECS - Streamlit
-      - name: Deploy housing-streamlit-service
-        run: |
-          aws ecs update-service \
-            --cluster housing-api-cluster-ecs \
-            --service housing-streamlit-service \
-            --force-new-deployment
+          docker run -d --name housing-streamlit-ci -p 8501:8501 -e API_URL=http://localhost:8000/predict housing-streamlit-ci
+          sleep 15
+          curl --fail http://localhost:8501/dashboard/_stcore/health
+          docker rm -f housing-streamlit-ci
