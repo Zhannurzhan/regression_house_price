@@ -1,10 +1,20 @@
-name: CI
+name: CI/CD Pipeline
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+
+env:
+  AWS_REGION: eu-north-1
+  AWS_ACCOUNT_ID: "229475224700"
+  API_REPOSITORY: housing-api
+  STREAMLIT_REPOSITORY: housing-streamlit
+  ECS_CLUSTER: housing-regression-cluster
+  API_SERVICE: housing-api-service
+  STREAMLIT_SERVICE: housing-streamlit-service
 
 jobs:
   test-and-build:
@@ -67,3 +77,60 @@ jobs:
           docker logs housing-streamlit-ci || true
           docker rm -f housing-streamlit-ci
           exit 1
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: test-and-build
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, and push API image
+        run: |
+          ECR_REGISTRY=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+          IMAGE_TAG=${GITHUB_SHA}
+          docker build -t ${ECR_REGISTRY}/${API_REPOSITORY}:${IMAGE_TAG} -f Dockerfile .
+          docker tag ${ECR_REGISTRY}/${API_REPOSITORY}:${IMAGE_TAG} ${ECR_REGISTRY}/${API_REPOSITORY}:latest
+          docker push ${ECR_REGISTRY}/${API_REPOSITORY}:${IMAGE_TAG}
+          docker push ${ECR_REGISTRY}/${API_REPOSITORY}:latest
+
+      - name: Build, tag, and push Streamlit image
+        run: |
+          ECR_REGISTRY=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+          IMAGE_TAG=${GITHUB_SHA}
+          docker build -t ${ECR_REGISTRY}/${STREAMLIT_REPOSITORY}:${IMAGE_TAG} -f Dockerfile.streamlit .
+          docker tag ${ECR_REGISTRY}/${STREAMLIT_REPOSITORY}:${IMAGE_TAG} ${ECR_REGISTRY}/${STREAMLIT_REPOSITORY}:latest
+          docker push ${ECR_REGISTRY}/${STREAMLIT_REPOSITORY}:${IMAGE_TAG}
+          docker push ${ECR_REGISTRY}/${STREAMLIT_REPOSITORY}:latest
+
+      - name: Deploy API service
+        run: |
+          aws ecs update-service \
+            --cluster ${ECS_CLUSTER} \
+            --service ${API_SERVICE} \
+            --force-new-deployment
+          aws ecs wait services-stable \
+            --cluster ${ECS_CLUSTER} \
+            --services ${API_SERVICE}
+
+      - name: Deploy Streamlit service
+        run: |
+          aws ecs update-service \
+            --cluster ${ECS_CLUSTER} \
+            --service ${STREAMLIT_SERVICE} \
+            --force-new-deployment
+          aws ecs wait services-stable \
+            --cluster ${ECS_CLUSTER} \
+            --services ${STREAMLIT_SERVICE}

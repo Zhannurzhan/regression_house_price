@@ -1,7 +1,6 @@
 # Housing Regression MLOps
 
-[![CI](https://github.com/Zhannurzhan/regression_house_price/actions/workflows/ci.yml/badge.svg)](https://github.com/Zhannurzhan/regression_house_price/actions/workflows/ci.yml)
-[![Build, Push, and Deploy to ECS](https://github.com/Zhannurzhan/regression_house_price/actions/workflows/deploy-ecr.yml/badge.svg)](https://github.com/Zhannurzhan/regression_house_price/actions/workflows/deploy-ecr.yml)
+[![CI/CD Pipeline](https://github.com/Zhannurzhan/regression_house_price/actions/workflows/ci.yml/badge.svg)](https://github.com/Zhannurzhan/regression_house_price/actions/workflows/ci.yml)
 
 End-to-end machine learning engineering project for housing price prediction.
 The project takes a housing price dataset from raw data processing through
@@ -77,8 +76,7 @@ Load -> Preprocess -> Feature Engineering -> Train -> Tune -> Evaluate
 ```text
 .
 |-- .github/workflows/
-|   |-- ci.yml                  # tests and Docker smoke checks
-|   `-- deploy-ecr.yml          # build, push to ECR, deploy ECS services
+|   `-- ci.yml                  # tests, Docker smoke checks, ECR/ECS deploy
 |-- notebooks/                  # EDA and model development notebooks
 |-- scripts/
 |   `-- start_mlflow_ui.ps1
@@ -343,11 +341,11 @@ default      -> housing-streamlit-tg
 
 ## CI/CD
 
-### CI
+### CI And Deploy
 
 `.github/workflows/ci.yml`
 
-Runs on pushes and pull requests to `main`:
+Runs tests and Docker smoke checks on pushes and pull requests to `main`:
 
 ```text
 install dependencies
@@ -358,15 +356,10 @@ build Streamlit Docker image
 smoke test Streamlit container
 ```
 
-### Build, Push, and Deploy
-
-`.github/workflows/deploy-ecr.yml`
-
-Runs manually and on deployment-relevant changes to `main`:
+On pushes to `main`, and manual `workflow_dispatch` runs, the same workflow
+deploys after the test job passes:
 
 ```text
-install dependencies
-run tests
 configure AWS credentials
 login to ECR
 build and push API image
